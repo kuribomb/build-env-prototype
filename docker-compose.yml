@@ -1,0 +1,181 @@
+# =====================================================================
+# ビルド環境プロトタイプ
+#
+# 「1サーバー = 1コンテナ」で本番想定の各サーバーを分離して定義する。
+# 本番展開時は、各サービスを実サーバー1台に読み替える。
+#
+#   portal        : ビルド依頼Webサーバー (Python)  → 本番: Webサーバー
+#   jenkins       : Jenkins コントローラ            → 本番: Jenkinsサーバー
+#   jenkins-agent : ビルド実行サーバー              → 本番: Linuxビルドサーバー
+#   gitlab        : GitLab CE                       → 本番: GitLabサーバー
+#   nas-browser   : 成果物閲覧用HTTPサーバー        → 本番: NAS
+#   teams-mock    : Teams通知モック                 → 本番: Microsoft Teams
+#
+# 設定値は .env から読み込む(setup.sh が自動生成)。
+# =====================================================================
+name: build-env-prototype
+
+services:
+  # ---------------------------------------------------------------
+  # ① ビルド依頼ポータル (Python/FastAPI)
+  #    ユーザーがコミットとプラットフォームバージョンを指定して
+  #    Jenkins のビルドジョブを発火する
+  # ---------------------------------------------------------------
+  portal:
+    build:
+      context: ./portal
+      additional_contexts:
+        certs: ./certs
+    container_name: portal
+    restart: unless-stopped
+    ports:
+      - "${PORTAL_PORT:-8000}:8000"
+    environment:
+      GITLAB_URL: "http://gitlab:${GITLAB_PORT:-8929}"
+      GITLAB_TOKEN: "${GITLAB_PAT}"
+      JENKINS_URL: "http://jenkins:8080"
+      JENKINS_USER: "${JENKINS_ADMIN_USER:-admin}"
+      JENKINS_PASSWORD: "${JENKINS_ADMIN_PASSWORD}"
+      JENKINS_JOB: "platform-build"
+      PUBLIC_JENKINS_URL: "http://${HOST_ADDR:-localhost}:${JENKINS_PORT:-8080}"
+      PUBLIC_GITLAB_URL: "http://${HOST_ADDR:-localhost}:${GITLAB_PORT:-8929}"
+      PUBLIC_NAS_URL: "http://${HOST_ADDR:-localhost}:${NAS_PORT:-8081}"
+      PUBLIC_TEAMS_URL: "http://${HOST_ADDR:-localhost}:${TEAMS_PORT:-8082}"
+    depends_on:
+      gitlab:
+        condition: service_healthy
+      jenkins:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------
+  # ② Jenkins コントローラ
+  #    設定はすべてコード管理: プラグイン=plugins.txt /
+  #    本体設定=casc/jenkins.yaml (JCasC) / ジョブ=jobs/*.groovy (Job DSL)
+  # ---------------------------------------------------------------
+  jenkins:
+    build:
+      context: ./jenkins
+      additional_contexts:
+        certs: ./certs
+    container_name: jenkins
+    restart: unless-stopped
+    ports:
+      - "${JENKINS_PORT:-8080}:8080"
+    environment:
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=false"
+      CASC_JENKINS_CONFIG: "/var/jenkins_conf/jenkins.yaml"
+      JENKINS_ADMIN_USER: "${JENKINS_ADMIN_USER:-admin}"
+      JENKINS_ADMIN_PASSWORD: "${JENKINS_ADMIN_PASSWORD}"
+      GITLAB_PAT: "${GITLAB_PAT}"
+      GITLAB_INTERNAL_URL: "http://gitlab:${GITLAB_PORT:-8929}"
+      TEAMS_WEBHOOK_URL: "http://teams-mock:8082/webhook"
+      PUBLIC_JENKINS_URL: "http://${HOST_ADDR:-localhost}:${JENKINS_PORT:-8080}"
+      PUBLIC_NAS_URL: "http://${HOST_ADDR:-localhost}:${NAS_PORT:-8081}"
+    volumes:
+      - jenkins-home:/var/jenkins_home
+      - ./jenkins/casc:/var/jenkins_conf:ro
+      - ./jenkins/jobs:/var/jenkins_jobs:ro
+    secrets:
+      - AGENT_SSH_KEY
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/login > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
+    depends_on:
+      - jenkins-agent
+
+  # ---------------------------------------------------------------
+  # ③ Jenkins Agent (Linuxビルドサーバー役)
+  #    本番と同じく Jenkins コントローラから SSH で接続される。
+  #    NAS相当のボリュームを /nas にマウント(本番のNASマウントと同じIF)
+  # ---------------------------------------------------------------
+  jenkins-agent:
+    build:
+      context: ./jenkins-agent
+      additional_contexts:
+        certs: ./certs
+    container_name: jenkins-agent
+    restart: unless-stopped
+    environment:
+      JENKINS_AGENT_SSH_PUBKEY: "${AGENT_SSH_PUBKEY}"
+    volumes:
+      - nas-storage:/nas
+
+  # ---------------------------------------------------------------
+  # ④ GitLab CE
+  #    アプリリポジトリ / プラットフォームリポジトリを提供。
+  #    初期データは gitlab/provision/provision.sh が投入する
+  # ---------------------------------------------------------------
+  gitlab:
+    image: "${GITLAB_IMAGE:-gitlab/gitlab-ce:latest}"
+    container_name: gitlab
+    hostname: gitlab
+    restart: unless-stopped
+    shm_size: "256m"
+    ports:
+      - "${GITLAB_PORT:-8929}:${GITLAB_PORT:-8929}"
+      - "${GITLAB_SSH_PORT:-2224}:22"
+    environment:
+      GITLAB_ROOT_PASSWORD: "${GITLAB_ROOT_PASSWORD}"
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://gitlab:${GITLAB_PORT:-8929}'
+        gitlab_rails['initial_root_password'] = '${GITLAB_ROOT_PASSWORD}'
+        gitlab_rails['gitlab_shell_ssh_port'] = ${GITLAB_SSH_PORT:-2224}
+        # --- プロトタイプ用: メモリ使用量を抑える設定 ---
+        prometheus_monitoring['enable'] = false
+        sidekiq['concurrency'] = 5
+        puma['worker_processes'] = 0
+    volumes:
+      - gitlab-config:/etc/gitlab
+      - gitlab-logs:/var/log/gitlab
+      - gitlab-data:/var/opt/gitlab
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:${GITLAB_PORT:-8929}/-/health > /dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 60
+      start_period: 300s
+
+  # ---------------------------------------------------------------
+  # ⑤ NAS閲覧 (nginx autoindex)
+  #    NAS相当のボリュームを読み取り専用でHTTP公開する。
+  #    Teams通知内の「成果物リンク」の飛び先
+  # ---------------------------------------------------------------
+  nas-browser:
+    image: nginx:alpine
+    container_name: nas-browser
+    restart: unless-stopped
+    ports:
+      - "${NAS_PORT:-8081}:80"
+    volumes:
+      - nas-storage:/nas:ro
+      - ./nas/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+  # ---------------------------------------------------------------
+  # ⑥ Teams通知モック
+  #    本番のTeams(Power Automate Incoming Webhook)と同じ形式の
+  #    POST を受信し、Teams風カードとして表示する。
+  #    本番移行時は jenkins の TEAMS_WEBHOOK_URL を実URLに差し替えるだけ
+  # ---------------------------------------------------------------
+  teams-mock:
+    build:
+      context: ./teams-mock
+      additional_contexts:
+        certs: ./certs
+    container_name: teams-mock
+    restart: unless-stopped
+    ports:
+      - "${TEAMS_PORT:-8082}:8082"
+
+volumes:
+  gitlab-config:
+  gitlab-logs:
+  gitlab-data:
+  jenkins-home:
+  nas-storage:
+
+secrets:
+  AGENT_SSH_KEY:
+    file: ./secrets/agent_ssh_key

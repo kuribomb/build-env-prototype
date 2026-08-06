@@ -1,0 +1,14 @@
+# 実行時に setup.sh が生成するもの(環境固有・秘密情報)
+.env
+secrets/
+
+# 社内プロキシ等のCA証明書(環境固有のため、置き場だけ管理する)
+certs/*.crt
+
+# ローカル環境専用の Compose 上書き設定
+compose.override.yaml
+docker-compose.override.yml
+
+# 検証環境専用ファイル
+jenkins/Dockerfile.sandbox
+jenkins/sandbox-init.groovy

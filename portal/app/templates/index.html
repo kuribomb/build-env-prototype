@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ビルド依頼ポータル</title>
+<style>
+  :root { --main: #1f6feb; --bg: #f6f8fa; --border: #d0d7de; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", "Hiragino Sans", "Meiryo", sans-serif;
+         margin: 0; background: var(--bg); color: #1f2328; }
+  header { background: #24292f; color: #fff; padding: 14px 24px; }
+  header h1 { margin: 0; font-size: 18px; }
+  header .sub { color: #9ea7b3; font-size: 12px; }
+  main { max-width: 760px; margin: 24px auto; padding: 0 16px; }
+  .card { background: #fff; border: 1px solid var(--border); border-radius: 8px;
+          padding: 20px 24px; margin-bottom: 16px; }
+  .card h2 { margin-top: 0; font-size: 16px; border-bottom: 1px solid var(--border);
+             padding-bottom: 8px; }
+  label { display: block; font-weight: 600; margin: 14px 0 4px; font-size: 14px; }
+  .hint { font-weight: normal; color: #656d76; font-size: 12px; margin-left: 6px; }
+  select, input[type=text] { width: 100%; padding: 8px 10px; font-size: 14px;
+          border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+  button { margin-top: 18px; background: var(--main); color: #fff; border: 0;
+           padding: 10px 22px; font-size: 15px; border-radius: 6px; cursor: pointer; }
+  button:hover { opacity: .9; }
+  button:disabled { background: #8c959f; cursor: wait; }
+  #result { margin-top: 14px; padding: 12px; border-radius: 6px; display: none;
+            font-size: 14px; }
+  #result.ok { display: block; background: #dafbe1; border: 1px solid #2da44e; }
+  #result.ng { display: block; background: #ffebe9; border: 1px solid #cf222e; }
+  .error { background: #fff8c5; border: 1px solid #d4a72c; padding: 10px 12px;
+           border-radius: 6px; font-size: 13px; }
+  .links { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+           gap: 10px; }
+  .links a { display: block; border: 1px solid var(--border); border-radius: 6px;
+             padding: 10px 12px; text-decoration: none; color: var(--main);
+             background: #fff; font-size: 14px; }
+  .links a:hover { background: var(--bg); }
+  .links .desc { color: #656d76; font-size: 12px; margin-top: 2px; }
+  code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ビルド依頼ポータル</h1>
+  <div class="sub">コミットとプラットフォームバージョンを指定して Jenkins ビルドを実行します</div>
+</header>
+<main>
+  <div class="card">
+    <h2>ビルド依頼</h2>
+    {% if gitlab_error %}
+      <div class="error">{{ gitlab_error }}<br>
+        一覧が取得できないため、コミットSHA・バージョンを直接入力してください。</div>
+    {% endif %}
+
+    <label for="commit">アプリのコミット
+      <span class="hint">({{ app_project }} のコミット履歴から選択)</span></label>
+    {% if commits %}
+    <select id="commit">
+      {% for c in commits %}
+      <option value="{{ c.id }}">{{ c.short_id }} — {{ c.title }} ({{ c.committed_date[:10] }})</option>
+      {% endfor %}
+    </select>
+    {% else %}
+    <input type="text" id="commit" placeholder="コミットSHA または ブランチ名 (例: main)">
+    {% endif %}
+
+    <label for="version">プラットフォームのバージョン
+      <span class="hint">({{ platform_project }} のタグから選択)</span></label>
+    {% if tags %}
+    <select id="version">
+      {% for t in tags %}
+      <option value="{{ t.name }}">{{ t.name }}{% if t.message %} — {{ t.message }}{% endif %}</option>
+      {% endfor %}
+    </select>
+    {% else %}
+    <input type="text" id="version" placeholder="バージョンタグ (例: v1.0.0)">
+    {% endif %}
+
+    <button id="run" onclick="submitBuild()">ビルド実行</button>
+    <div id="result"></div>
+  </div>
+
+  <div class="card">
+    <h2>各サービス(デモ順路)</h2>
+    <div class="links">
+      <a href="{{ jenkins_url }}/job/{{ job_name }}/" target="_blank">Jenkins
+        <div class="desc">ビルドジョブの実行状況・ログ</div></a>
+      <a href="{{ gitlab_url }}" target="_blank">GitLab
+        <div class="desc">アプリ/プラットフォームリポジトリ (root でログイン)</div></a>
+      <a href="{{ nas_url }}" target="_blank">NAS(成果物)
+        <div class="desc">ビルド成果物の保管先</div></a>
+      <a href="{{ teams_url }}" target="_blank">Teams通知モック
+        <div class="desc">ビルド結果の通知カード</div></a>
+    </div>
+  </div>
+</main>
+<script>
+async function submitBuild() {
+  const btn = document.getElementById("run");
+  const result = document.getElementById("result");
+  const commit = document.getElementById("commit").value.trim();
+  const version = document.getElementById("version").value.trim();
+  btn.disabled = true;
+  result.className = "";
+  result.textContent = "";
+  try {
+    const resp = await fetch("/api/build", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ app_commit: commit, platform_version: version }),
+    });
+    const data = await resp.json();
+    if (resp.ok && data.ok) {
+      result.className = "ok";
+      result.innerHTML = data.message +
+        ' — <a href="' + data.job_url + '" target="_blank">Jenkins でジョブを確認する</a>';
+    } else {
+      result.className = "ng";
+      result.textContent = data.error || "ビルドの発火に失敗しました";
+    }
+  } catch (e) {
+    result.className = "ng";
+    result.textContent = "通信エラー: " + e;
+  } finally {
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,84 @@
+# =====================================================================
+# Jenkins Configuration as Code (JCasC)
+#
+# Jenkins 本体の設定はすべてこのファイルで管理する。
+# ${...} は環境変数(docker-compose.yml で注入)または
+# /run/secrets/ のシークレット(AGENT_SSH_KEY)から解決される。
+# =====================================================================
+jenkins:
+  systemMessage: "ビルド環境プロトタイプ — この Jenkins の設定はすべてコード (JCasC + Job DSL) で管理されています"
+
+  # コントローラ上ではビルドしない(専用Agentで実行するのが本番同様の構成)
+  numExecutors: 0
+
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_USER}"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      # メンバーがログインなしでジョブ結果を閲覧できるようにする(デモ用)
+      allowAnonymousRead: true
+
+  # Linuxビルドサーバー(jenkins-agent コンテナ)へ SSH で接続する
+  nodes:
+    - permanent:
+        name: "linux-build-01"
+        labelString: "linux-build"
+        remoteFS: "/home/jenkins/agent"
+        numExecutors: 2
+        launcher:
+          ssh:
+            host: "jenkins-agent"
+            port: 22
+            credentialsId: "agent-ssh-key"
+            launchTimeoutSeconds: 60
+            sshHostKeyVerificationStrategy: "nonVerifyingKeyVerificationStrategy"
+        retentionStrategy: "always"
+
+  # ジョブ(Pipeline)へ渡す共通設定
+  globalNodeProperties:
+    - envVars:
+        env:
+          - key: "APP_REPO_URL"
+            value: "${GITLAB_INTERNAL_URL}/root/app-repo.git"
+          - key: "PLATFORM_REPO_URL"
+            value: "${GITLAB_INTERNAL_URL}/root/platform-repo.git"
+          - key: "NAS_DIR"
+            value: "/nas"
+          - key: "TEAMS_WEBHOOK_URL"
+            value: "${TEAMS_WEBHOOK_URL}"
+          - key: "PUBLIC_NAS_URL"
+            value: "${PUBLIC_NAS_URL}"
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - usernamePassword:
+              scope: GLOBAL
+              id: "gitlab-pat"
+              description: "GitLab アクセストークン(リポジトリ取得用)"
+              username: "root"
+              password: "${GITLAB_PAT}"
+          - basicSSHUserPrivateKey:
+              scope: SYSTEM
+              id: "agent-ssh-key"
+              description: "jenkins-agent への SSH 接続鍵"
+              username: "jenkins"
+              privateKeySource:
+                directEntry:
+                  privateKey: "${AGENT_SSH_KEY}"
+
+unclassified:
+  location:
+    # 通知やポータルからのリンクに使われる公開URL
+    url: "${PUBLIC_JENKINS_URL}/"
+    adminAddress: "build-env-prototype@example.com"
+
+# ジョブ定義は Job DSL スクリプトで管理する(ジョブのコード化)
+jobs:
+  - file: /var/jenkins_jobs/platform_build.groovy

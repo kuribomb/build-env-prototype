@@ -1,0 +1,11 @@
+# Jenkins プラグイン定義(依存プラグインは自動解決される)
+# 設定のコード化
+configuration-as-code
+# ジョブ定義のコード化
+job-dsl
+# Git リポジトリの取得
+git
+# Pipeline 一式
+workflow-aggregator
+# SSH 接続の Jenkins Agent
+ssh-slaves
