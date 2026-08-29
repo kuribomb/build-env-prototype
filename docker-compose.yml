@@ -169,6 +169,29 @@ services:
     ports:
       - "${TEAMS_PORT:-8082}:8082"
 
+  # ---------------------------------------------------------------
+  # ⑦ Ansible 実行環境(使い捨てランナー)
+  #    setup.sh 相当の一括構築処理を Ansible Playbook (site.yml) として
+  #    実行するための Execution Environment 的コンテナ。ホストの
+  #    Docker ソケットを共有し、他コンテナ自身の起動も含めて行う。
+  #    常駐サービスではないため既定の `docker compose up` では起動しない
+  #    (`docker compose run --rm ansible` で明示的に実行する)。
+  # ---------------------------------------------------------------
+  ansible:
+    build:
+      context: ./ansible
+      additional_contexts:
+        certs: ./certs
+    profiles: ["tools"]
+    working_dir: ${PWD}
+    volumes:
+      # ホストとコンテナで同じ絶対パスにマウントする(Docker-outside-of-Docker)。
+      # docker-compose.yml 内の相対パスのバインドマウントは、ここで動く
+      # `docker compose` プロセスの cwd を基準にホストのDockerデーモンへ
+      # 絶対パスとして渡されるため、パスを一致させる必要がある。
+      - ${PWD}:${PWD}
+      - /var/run/docker.sock:/var/run/docker.sock
+
 volumes:
   gitlab-config:
   gitlab-logs:

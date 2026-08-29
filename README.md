@@ -111,23 +111,30 @@ git clone <このリポジトリ> && cd build-env-prototype
 
 ### 1'. 構築(Ansible版)
 
-`setup.sh` と同じ処理を Ansible の Playbook として実行できます。WSL2 上に
-Ansible をインストールした上で、`ansible-playbook` 一発で構築します。
+`setup.sh` と同じ処理を Ansible の Playbook (`site.yml`) として実行できます。
+Ansible 本体もホストに直接インストールせず、**Ansible自身も1コンテナ**
+(`ansible` サービス、Execution Environment的な使い捨てランナー)として動かします。
+「1サーバー=1コンテナ」の思想と、Ansibleを直接ホストにpip/apt installしない
+という現在のベストプラクティスの両方に沿った構成です。
 
 ```bash
-# WSL2 (Ubuntu) 内で一度だけ
-sudo apt update && sudo apt install -y ansible
-
 cd build-env-prototype
-ansible-playbook site.yml            # 構築 + スモークテスト
-ansible-playbook site.yml -e skip_test=true  # スモークテストを飛ばして構築のみ
+docker compose run --rm --build ansible                     # 構築 + スモークテスト
+docker compose run --rm ansible site.yml -e skip_test=true  # スモークテストを飛ばして構築のみ
 ```
 
-`ansible.cfg` によりインベントリ(`ansible/inventory.ini`、localhost 直接実行)
-は自動で読み込まれます。`site.yml` が `ansible/tasks/*.yml` を順に実行し、
-`.env`/SSH鍵生成 → コンテナ起動 → GitLab投入 → Jenkins疎通確認 → スモーク
-テスト → アクセスURL表示、まで `setup.sh` と同等の内容を冪等に行います。
-`setup.sh`(bash版)と `site.yml`(Ansible版)はどちらか好きな方を使えます。
+`ansible` コンテナはホストの Docker ソケットを共有し、その中から
+`docker compose up -d --build` で他の6コンテナ自身を起動する
+(Docker-outside-of-Docker)。ホストとコンテナで同じ絶対パス(`${PWD}`)に
+リポジトリをマウントしているため、`docker-compose.yml` 内の相対パスの
+バインドマウントもそのまま正しく解決される。常駐サービスではないため
+`profiles: ["tools"]` を付けており、通常の `docker compose up` では起動しない。
+
+`site.yml` は `ansible/tasks/*.yml` を順に実行し、`.env`/SSH鍵生成 →
+コンテナ起動 → GitLab投入 → Jenkins疎通確認 → スモークテスト →
+アクセスURL表示、まで `setup.sh` と同等の内容を冪等に行う。
+`setup.sh`(bash版)と `docker compose run --rm ansible`(Ansible版)は
+どちらか好きな方を使える。
 
 ## デモシナリオ(メンバーへの説明順路)
 
