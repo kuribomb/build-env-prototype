@@ -1,0 +1,34 @@
+---
+- name: Jenkins の起動を待ちます
+  ansible.builtin.command: >
+    docker inspect -f {% raw %}'{{.State.Health.Status}}'{% endraw %} jenkins
+  register: jenkins_health
+  changed_when: false
+  until: jenkins_health.stdout == "healthy"
+  retries: 60
+  delay: 5
+
+- name: Jenkins のジョブ定義 (platform-build) を確認します
+  ansible.builtin.uri:
+    url: "http://localhost:{{ env.JENKINS_PORT }}/job/platform-build/api/json"
+    url_username: "{{ env.JENKINS_ADMIN_USER }}"
+    url_password: "{{ env.JENKINS_ADMIN_PASSWORD }}"
+    force_basic_auth: true
+    status_code: 200
+  register: jenkins_job
+  until: jenkins_job.status == 200
+  retries: 24
+  delay: 5
+
+- name: Jenkins Agent (linux-build-01) の接続を確認します
+  ansible.builtin.uri:
+    url: "http://localhost:{{ env.JENKINS_PORT }}/computer/linux-build-01/api/json"
+    url_username: "{{ env.JENKINS_ADMIN_USER }}"
+    url_password: "{{ env.JENKINS_ADMIN_PASSWORD }}"
+    force_basic_auth: true
+    status_code: 200
+    return_content: true
+  register: jenkins_agent
+  until: jenkins_agent.json.offline is defined and jenkins_agent.json.offline == false
+  retries: 36
+  delay: 5

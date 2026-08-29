@@ -1,0 +1,23 @@
+---
+- name: 必須コマンドの存在確認 (docker/git/curl/ssh-keygen)
+  ansible.builtin.command: "which {{ item }}"
+  loop: [docker, git, curl, ssh-keygen]
+  register: cmd_check
+  changed_when: false
+  failed_when: cmd_check.rc != 0
+
+- name: docker compose (v2) の確認
+  ansible.builtin.command: docker compose version
+  changed_when: false
+
+- name: Docker デーモンへの接続確認
+  ansible.builtin.command: docker info
+  changed_when: false
+
+- name: メモリ量の確認(8GB未満なら警告)
+  ansible.builtin.debug:
+    msg: >-
+      メモリが8GB未満です({{ ansible_memtotal_mb }}MB)。GitLab CE は約4GB使用するため
+      動作が不安定になる可能性があります。WSL2のメモリ上限は Windows 側の
+      %UserProfile%\.wslconfig で変更できます。
+  when: ansible_memtotal_mb < 8192

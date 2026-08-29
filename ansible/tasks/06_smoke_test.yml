@@ -1,0 +1,52 @@
+---
+- name: "スモークテスト: ポータル経由でビルドを1件実行します"
+  ansible.builtin.debug:
+    msg: "スモークテストを開始します"
+
+- name: ポータルの起動を待ちます
+  ansible.builtin.uri:
+    url: "http://localhost:{{ env.PORTAL_PORT }}/healthz"
+    status_code: 200
+  register: portal_health
+  until: portal_health.status == 200
+  retries: 40
+  delay: 3
+
+- name: Teams通知モックの現在の通知件数を取得します
+  ansible.builtin.uri:
+    url: "http://localhost:{{ env.TEAMS_PORT }}/api/notifications"
+    status_code: 200
+    return_content: true
+  register: teams_before
+
+- name: ポータルからビルドを発火します
+  ansible.builtin.uri:
+    url: "http://localhost:{{ env.PORTAL_PORT }}/api/build"
+    method: POST
+    body_format: json
+    body:
+      app_commit: main
+      platform_version: v1.1.0
+    status_code: 200
+
+- name: ビルドの完了と Teams 通知を待ちます
+  ansible.builtin.uri:
+    url: "http://localhost:{{ env.TEAMS_PORT }}/api/notifications"
+    status_code: 200
+    return_content: true
+  register: teams_after
+  until: teams_after.json | length > (teams_before.json | length)
+  retries: 60
+  delay: 5
+
+- name: NAS に成果物が保管されていることを確認します
+  ansible.builtin.uri:
+    url: "http://localhost:{{ env.NAS_PORT }}/builds/"
+    status_code: 200
+    return_content: true
+  register: nas_listing
+  failed_when: "'platform-build' not in nas_listing.content"
+
+- name: スモークテスト成功
+  ansible.builtin.debug:
+    msg: "スモークテスト成功: ビルド → NAS保管 → Teams通知 の全経路を確認しました"

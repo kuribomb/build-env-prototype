@@ -1,0 +1,6 @@
+---
+- name: コンテナをビルド・起動します (docker compose up -d --build)
+  ansible.builtin.command: docker compose up -d --build
+  args:
+    chdir: "{{ project_dir }}"
+  changed_when: true

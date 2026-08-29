@@ -1,0 +1,38 @@
+---
+# =====================================================================
+# ビルド環境プロトタイプ 一括構築 Playbook(Ansible版)
+#
+#   ansible-playbook site.yml                   構築 + スモークテスト
+#   ansible-playbook site.yml -e skip_test=true  スモークテストを飛ばして構築のみ
+#
+# setup.sh と同等の処理を Ansible のタスクとして実行する。冪等。
+# =====================================================================
+- name: ビルド環境プロトタイプを一括構築する
+  hosts: local
+  gather_facts: true
+  vars:
+    project_dir: "{{ playbook_dir }}"
+    skip_test: false
+
+  tasks:
+    - name: 0. 前提チェック
+      ansible.builtin.import_tasks: ansible/tasks/01_prereqs.yml
+
+    - name: 1. .env と SSH鍵の生成
+      ansible.builtin.import_tasks: ansible/tasks/02_env_secrets.yml
+
+    - name: 2. コンテナのビルドと起動
+      ansible.builtin.import_tasks: ansible/tasks/03_containers.yml
+
+    - name: 3. GitLab の起動待ちと初期データ投入
+      ansible.builtin.import_tasks: ansible/tasks/04_gitlab.yml
+
+    - name: 4. Jenkins の起動待ち
+      ansible.builtin.import_tasks: ansible/tasks/05_jenkins.yml
+
+    - name: 5. スモークテスト
+      ansible.builtin.import_tasks: ansible/tasks/06_smoke_test.yml
+      when: not skip_test
+
+    - name: 6. アクセス情報の表示
+      ansible.builtin.import_tasks: ansible/tasks/07_summary.yml

@@ -1,0 +1,19 @@
+---
+- name: GitLab の起動を待ちます(初回は3〜5分かかります)
+  ansible.builtin.command: >
+    docker inspect -f {% raw %}'{{.State.Health.Status}}'{% endraw %} gitlab
+  register: gitlab_health
+  changed_when: false
+  until: gitlab_health.stdout == "healthy"
+  retries: 120
+  delay: 5
+
+- name: GitLab の起動を確認しました
+  ansible.builtin.debug:
+    msg: "GitLab が起動しました"
+
+- name: GitLab へリポジトリ・トークンを投入します
+  ansible.builtin.command: ./gitlab/provision/provision.sh
+  args:
+    chdir: "{{ project_dir }}"
+  changed_when: true

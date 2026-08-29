@@ -38,6 +38,7 @@ flowchart LR
 | Jenkins ジョブ定義(ビルドパイプライン) | `jenkins/jobs/platform_build.groovy` | Job DSL + Pipeline |
 | GitLab 初期データ(リポジトリ/トークン) | `gitlab/provision/provision.sh` | GitLab API + gitlab-rails |
 | 各サーバーの中身 | `*/Dockerfile` | Docker |
+| 一括構築手順(Ansible版) | `site.yml` / `ansible/tasks/*.yml` | Ansible |
 
 手作業での画面設定は一切ありません。`teardown.sh` で全削除してから
 `setup.sh` を再実行すると、同じ環境が再現されます。
@@ -107,6 +108,26 @@ git clone <このリポジトリ> && cd build-env-prototype
 3. メンバーには `http://<WindowsのLAN IP>:8000/` を案内
 
 元に戻すには `remove-lan.ps1` を実行します。
+
+### 1'. 構築(Ansible版)
+
+`setup.sh` と同じ処理を Ansible の Playbook として実行できます。WSL2 上に
+Ansible をインストールした上で、`ansible-playbook` 一発で構築します。
+
+```bash
+# WSL2 (Ubuntu) 内で一度だけ
+sudo apt update && sudo apt install -y ansible
+
+cd build-env-prototype
+ansible-playbook site.yml            # 構築 + スモークテスト
+ansible-playbook site.yml -e skip_test=true  # スモークテストを飛ばして構築のみ
+```
+
+`ansible.cfg` によりインベントリ(`ansible/inventory.ini`、localhost 直接実行)
+は自動で読み込まれます。`site.yml` が `ansible/tasks/*.yml` を順に実行し、
+`.env`/SSH鍵生成 → コンテナ起動 → GitLab投入 → Jenkins疎通確認 → スモーク
+テスト → アクセスURL表示、まで `setup.sh` と同等の内容を冪等に行います。
+`setup.sh`(bash版)と `site.yml`(Ansible版)はどちらか好きな方を使えます。
 
 ## デモシナリオ(メンバーへの説明順路)
 

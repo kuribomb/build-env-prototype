@@ -1,0 +1,19 @@
+---
+- name: アクセスURL一覧を表示します
+  ansible.builtin.debug:
+    msg:
+      - "====================================================================="
+      - " 構築完了! アクセスURL (HOST_ADDR={{ env.HOST_ADDR }})"
+      - "---------------------------------------------------------------------"
+      - " ビルド依頼ポータル : http://{{ env.HOST_ADDR }}:{{ env.PORTAL_PORT }}/"
+      - " Jenkins            : http://{{ env.HOST_ADDR }}:{{ env.JENKINS_PORT }}/"
+      - "                      (ユーザー: {{ env.JENKINS_ADMIN_USER }} / パスワード: .env の JENKINS_ADMIN_PASSWORD)"
+      - " GitLab             : http://{{ env.HOST_ADDR }}:{{ env.GITLAB_PORT }}/"
+      - "                      (ユーザー: root / パスワード: .env の GITLAB_ROOT_PASSWORD)"
+      - " NAS(成果物)        : http://{{ env.HOST_ADDR }}:{{ env.NAS_PORT }}/"
+      - " Teams通知モック    : http://{{ env.HOST_ADDR }}:{{ env.TEAMS_PORT }}/"
+      - "---------------------------------------------------------------------"
+      - " メンバーのPCからアクセスさせる場合:"
+      - "   1. .env の HOST_ADDR を Windows の LAN IP に変更し ansible-playbook site.yml を再実行"
+      - "   2. Windows 側で管理者 PowerShell から windows/expose-lan.ps1 を実行"
+      - "====================================================================="
