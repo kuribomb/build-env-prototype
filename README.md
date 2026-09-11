@@ -23,7 +23,7 @@ flowchart LR
 | `jenkins` | Jenkins コントローラ | Jenkinsサーバー |
 | `jenkins-agent` | ビルド実行サーバー(sshd+JDK+git の素のLinux) | Linuxビルドサーバー |
 | `gitlab` | GitLab CE(本物) | GitLabサーバー |
-| `nas-browser` | 成果物置き場のHTTP閲覧 | NAS |
+| `nas-browser` | 成果物置き場のHTTP閲覧(ホストディレクトリをバインドマウント) | NAS |
 | `teams-mock` | 通知の受信・表示 | Microsoft Teams |
 
 ## IaC(Infrastructure as Code)の構成
@@ -41,6 +41,13 @@ flowchart LR
 
 手作業での画面設定は一切ありません。`teardown.sh` で全削除してから
 `setup.sh` を再実行すると、同じ環境が再現されます。
+
+NAS相当のストレージは Docker named volume ではなく、`.env` の
+`NAS_HOST_PATH`(既定は `./nas-data`)で指定した**ホストマシンのディレクトリ**を
+そのままバインドマウントしています。ビルド成果物はホスト上に実ファイルとして
+残るため、本番のNAS共有ディレクトリと同じ扱いで直接参照・バックアップできます。
+本番のNAS(またはその共有ディレクトリ)を直接使う場合は、`NAS_HOST_PATH` に
+そのマウントパス(例: `/mnt/nas/builds`)を指定するだけです。
 
 ## 構築手順
 
@@ -140,7 +147,7 @@ git clone <このリポジトリ> && cd build-env-prototype
 | 各コンテナ | 実サーバー各1台(またはVM) |
 | `docker-compose.yml` のサービス定義 | サーバー構成表 / Ansible インベントリ |
 | 各 `Dockerfile` の中身 | 各サーバーのセットアップ手順(Ansible プレイブック化) |
-| `nas-storage` ボリューム | NAS の共有ディレクトリ(各サーバーからマウント) |
+| `NAS_HOST_PATH` のホストディレクトリ | NAS の共有ディレクトリ(各サーバーからマウント。既にホスト側の実ディレクトリなので、本番では実際のNASマウントパスに差し替えるだけ) |
 | `teams-mock` | Teams の Webhook URL に差し替え |
 | JCasC / Job DSL / plugins.txt | そのまま流用可能(Jenkins 標準機能) |
 
