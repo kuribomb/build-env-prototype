@@ -12,3 +12,7 @@ docker-compose.override.yml
 # 検証環境専用ファイル
 jenkins/Dockerfile.sandbox
 jenkins/sandbox-init.groovy
+
+# NAS相当のホストディレクトリ(バインドマウント先、ビルド成果物)
+nas-data/*
+!nas-data/.gitkeep
